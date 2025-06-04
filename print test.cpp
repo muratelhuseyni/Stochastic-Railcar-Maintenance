@@ -25,13 +25,13 @@ using namespace std;
 //paralel for
 
 const int tt = 28; //7 g�n - 4 time period/day
-const int K = 1000;   //normalde 1000, senaryo say�s� //real
-const int n = 100; // total number of jobs    //real
-const int kk = 50; //real
+//const int K = 1000;   //normalde 1000, senaryo say�s� //real
+//const int n = 100; // total number of jobs    //real
+//const int kk = 50; //real
 
-//const int kk = 5;  //test
-//const int K = 10;   //normalde 1000, senaryo say�s�     //test
-//const int n = 100; // total number of jobs  //test
+const int kk = 5;  //test
+const int K = 10;   //normalde 1000, senaryo say�s�     //test
+const int n = 100; // total number of jobs  //test
 
 const int seedsayisi = 5;
 const int perfkriteri = 5;
@@ -924,7 +924,7 @@ int main()
 
 	ofstream resultfile;
 
-	for (int age = 0; age < 1; ++age)  //0:stcoh; 1:det
+	for (int age = 1; age < 2; ++age)  //0:stcoh; 1:det
 	{
 		Jobs.clear();
 
@@ -948,7 +948,7 @@ int main()
 		int tau[seedsayisi][n][kk];
 		GenerateScenarios(scenK, tau, Jobs, rngmt, 0, -1);
 
-		for (int typ = 0; typ < 1; ++typ)
+		for (int typ = 0; typ < 2; ++typ)
 		{
 
 			if (typ == 0)
@@ -971,7 +971,7 @@ int main()
 					pensla = Cc * 2 / 3;
 
 				for (int met = 0; met < 1; met++)
-					for (int sla = 0; sla < 1; ++sla)
+					for (int sla = 1; sla < 2; ++sla)
 					{
 						if (typ == 0 && met == 1)
 							continue;
