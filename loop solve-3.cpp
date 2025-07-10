@@ -26,14 +26,15 @@ using namespace std;
 
 const int tt = 28; //7 g�n - 4 time period/day
 const int K = 1000;   //normalde 1000, senaryo say�s� //real
-const int n = 100; // total number of jobs    //real
-const int kk = 50; //real
+
+//const int kk = 50; //real
+const int kk = 100; //real
 
 //const int kk = 5;  //test
 //const int K = 10;   //normalde 1000, senaryo say�s�     //test
 //const int n = 2; // total number of jobs  //test
 
-const int seedsayisi = 5;
+const int seedsayisi = 10;
 const int perfkriteri = 5;
 
 struct Job
@@ -76,8 +77,8 @@ double* FindCI(int size, double* data, double alpha)
 	//double alpha = 0.05;
 	double Z_alfaover2 = 1.96;
 
-	double lb = avgcost - Z_alfaover2*stdev/sqrt(size);
-	double ub = avgcost + Z_alfaover2*stdev/sqrt(size);
+	double lb = avgcost - Z_alfaover2 * stdev / sqrt(size);
+	double ub = avgcost + Z_alfaover2 * stdev / sqrt(size);
 
 	CI[0] = lb;
 	CI[1] = ub;
@@ -86,7 +87,7 @@ double* FindCI(int size, double* data, double alpha)
 }
 
 
-void GenerateJobInterval(vector<Job>& Jobs, int cdftarget)
+void GenerateJobInterval(vector<Job>& Jobs, int cdftarget, int n)
 {
 	double beta = 5; //shape //>1 olsun ki increasing failure rate olsun
 	double alpha = 50; //scale - mtbf
@@ -114,7 +115,7 @@ void GenerateJobInterval(vector<Job>& Jobs, int cdftarget)
 	}
 }
 
-double SetupModel2(double z2[n][tt], double* pi, int opercost, int Cadd, int pensla, int Cc, int Cp, int penymaxplus, int Yp, int Yc, int L, int* SLA, vector<Job>& Jobs)
+double SetupModel2(vector<vector<double>>& z2, int n, double* pi, int opercost, int Cadd, int pensla, int Cc, int Cp, int penymaxplus, int Yp, int Yc, int L, int* SLA, vector<Job>& Jobs)
 {
 	//Elhuseyni and ATU model
 	IloEnv env2;
@@ -210,6 +211,13 @@ double SetupModel2(double z2[n][tt], double* pi, int opercost, int Cadd, int pen
 		model2.add(T[j] - deltaYmaxplus[j] <= job.Ymax - job.dj);
 	}
 
+	//violation upper bound
+	/*for (int t = 0; t < tt; ++t)
+	{
+		model2.add(gamma[t] <= ceil(L * 0.50));
+		model2.add(deltaSLA[t] <= ceil(0.50 * SLA[t]));
+	}*/
+
 	//write the objective
 	IloExpr objExp2(env2);
 
@@ -294,7 +302,7 @@ double SetupModel2(double z2[n][tt], double* pi, int opercost, int Cadd, int pen
 }
 
 
-double SetupModelTest(double z2[n][tt], int* tau, int* gamma, int* sla_v, double& costestcor, double& costestprev, int opercost, int Cadd, int pensla, int Cc, int Cp, int Yp, int Yc, int L, int* SLA)
+double SetupModelTest(vector<vector<double>>& z2, int n, int* tau, int* gamma, int* sla_v, double& costestcor, double& costestprev, int opercost, int Cadd, int pensla, int Cc, int Cp, int Yp, int Yc, int L, int* SLA)
 {
 
 	double objresult = 0;
@@ -361,7 +369,7 @@ double SetupModelTest(double z2[n][tt], int* tau, int* gamma, int* sla_v, double
 	return objresult;
 }
 
-void SetupModel1(int senaryo, double z1[n][tt], double traincost[seedsayisi], double* pi, int tau[n][kk], int opercost, int Cadd, int pensla, int Cc, int Cp, int Yp, int Yc, int L, int* SLA)
+void SetupModel1(int senaryo, int n, vector<vector<double>>& z1, double traincost[seedsayisi], double* pi, vector<vector<int>>& tau, int opercost, int Cadd, int pensla, int Cc, int Cp, int Yp, int Yc, int L, int* SLA)
 {
 	IloEnv env;
 	IloModel model(env);
@@ -455,6 +463,14 @@ void SetupModel1(int senaryo, double z1[n][tt], double traincost[seedsayisi], do
 			exp.end();
 		}
 
+	//violation upper bound
+	/*for (int k = 0; k < kk; ++k)
+		for (int t = 0; t < tt; ++t)
+		{
+			model.add(gamma[t][k] <= ceil(L * 0.50));
+			model.add(deltaminusSLA[t][k] <= ceil(0.50 * SLA[t]));
+		}*/
+
 	//demand curtailment
 	for (int k = 0; k < kk; ++k)
 		for (int t = 0; t < tt; ++t)
@@ -501,7 +517,8 @@ void SetupModel1(int senaryo, double z1[n][tt], double traincost[seedsayisi], do
 	model.add(obj);
 
 	IloCplex cplex(model);
-	cplex.setParam(IloCplex::TiLim, 60 * 60);
+	cplex.setParam(IloCplex::TiLim, 60 * 60); //10 mins new instead of 60
+	cplex.setParam(IloCplex::EpGap, 0.01);
 
 	//cplex.exportModel("deneme.lp");
 	IloBool success = cplex.solve();
@@ -567,245 +584,9 @@ void SetupModel1(int senaryo, double z1[n][tt], double traincost[seedsayisi], do
 
 }
 
-void SetupModel1withChance(int senaryo, double z1[n][tt], double traincost[seedsayisi], double* pi, int tau[n][kk], int opercost, int Cadd, int pensla, int Cc, int Cp, int Yp, int Yc, int L, int* SLA, int rho, double epsilon)
-{
-	IloEnv env;
-	IloModel model(env);
-
-	BoolVarArray3 eta = CreateBoolVarArray3(env, n, tt, kk, "eta");   //operational recourse variable
-	NumVarArray2 gamma = CreateNumVarArray2(env, tt, kk, "gamma");   //maintenance recourse variable (additional to the current capacity)
-	BoolVarArray2 Z = CreateBoolVarArray2(env, n, tt, "Z");   //maintenance begins for job j at time 1; else 0 -yukar�daki b_jt
-	NumVarArray2 deltaminusSLA = CreateNumVarArray2(env, tt, kk, "deltaSLA-", 0, IloInfinity); //sla_deltad_undersatisfaction
-	BoolVarArray3 m = CreateBoolVarArray3(env, n, tt, kk, "m");
-	IloBoolVarArray w = CreateBoolVarArray(env, kk, "w");  //dummy for chance constraint
-	IloBoolVarArray np = CreateBoolVarArray(env, n, "n");   //operational variable
-
-	IloExpr objExp(env);
-	//corrective out of service
-	//ornek k�s�t ekleme
-
-	//for each (Job job in Jobs)
 
 
-	for (int j = 0; j < n; ++j) //3-job size
-	{
-		IloExpr exp(env);
-
-		for (int t = 0; t < tt; ++t)
-			exp += Z[j][t];
-
-		for (int k = 0; k < kk; ++k)
-			if (tt > tau[j][k])
-				model.add(exp + np[j] == 1);
-
-		exp.end();
-	}
-
-	for (int j = 0; j < n; ++j) //3-job size
-	{
-		IloExpr exp(env);
-
-		for (int t = 0; t < tt; ++t)
-			exp += Z[j][t];
-
-		for (int k = 0; k < kk; ++k)
-			if (tau[j][k] >= tt)
-				model.add(exp <= 1);
-
-		exp.end();
-	}
-
-	for (int j = 0; j < n; ++j)
-		for (int k = 0; k < kk; ++k)
-			for (int t = 0; t < min(tau[j][k] - 1 + Yp, tt); ++t)
-			{
-
-				IloExpr exp(env);
-				for (int e = 0; e < Yp; ++e)
-				{
-					if (t - e < 0)
-						break;
-					exp += Z[j][t - e];
-				}
-
-				model.add(m[j][t][k] == exp);
-				exp.end();
-			}
-
-	for (int j = 0; j < n; ++j)
-		for (int k = 0; k < kk; ++k)
-			for (int t = tau[j][k]; t < min(tau[j][k] + Yc, tt); ++t)
-			{
-				IloExpr exp(env);
-				int end = min(t - Yp + 1, tau[j][k]);
-				for (int tprime = 0; tprime < end; ++tprime)
-					exp += Z[j][tprime];
-				model.add(m[j][t][k] == 1 - exp);
-				exp.end();
-			}
-
-	for (int j = 0; j < n; ++j)
-		for (int k = 0; k < kk; ++k)
-			for (int t = tau[j][k] + Yc; t < tt; ++t)
-				model.add(m[j][t][k] == 0);
-
-	for (int j = 0; j < n; ++j)
-		for (int k = 0; k < kk; ++k)
-			for (int t = 0; t < tt; ++t)
-				model.add(eta[j][t][k] <= 1 - m[j][t][k]);
-
-	//extra capacity
-	for (int k = 0; k < kk; ++k)
-		for (int t = 0; t < tt; ++t)
-		{
-			IloExpr exp(env);
-			for (int j = 0; j < n; ++j)
-				exp += m[j][t][k];
-
-			model.add(exp <= L + gamma[t][k]);
-			exp.end();
-		}
-
-	//demand curtailment
-	for (int k = 0; k < kk; ++k)
-		for (int t = 0; t < tt; ++t)
-		{
-			IloExpr exp(env);
-			for (int j = 0; j < n; ++j)
-				exp += eta[j][t][k];
-
-			model.add(exp + deltaminusSLA[t][k] >= SLA[t]);
-			//15.4.25
-			exp.end();
-		}
-
-	//14.3.23-chance approimations
-	//const1
-	for (int k = 0; k < kk; ++k)
-	{
-		IloExpr expout(env);
-		for (int j = 0; j < n; ++j)
-		{
-			if (tau[j][k] < tt)
-			{
-				IloExpr exp(env);
-				for (int t = 0; t < tau[j][k]; ++t)
-					exp += Z[j][t];
-				expout += (1 - exp);
-				exp.end();
-			}
-		}
-
-		model.add(expout <= rho + n * w[k]);
-		expout.end();
-	}
-
-	//const2
-	IloExpr exp(env);
-	for (int k = 0; k < kk; ++k)
-		exp += w[k];
-
-	model.add(exp <= epsilon * kk);
-	exp.end();
-
-	//write the objective
-	for (int k = 0; k < kk; ++k)
-		for (int j = 0; j < n; ++j)
-		{
-			for (int t = 0; t < tau[j][k]; ++t)
-				objExp += pi[k] * Cp * Z[j][t];
-			for (int t = tau[j][k]; t < tt; ++t)
-				objExp += Cc * pi[k] * Z[j][t];
-			//28.4.25 new term
-			if (tt - 1 >= tau[j][k])
-				objExp += Cc * pi[k] * np[j];
-		}
-
-	for (int k = 0; k < kk; ++k)
-		for (int t = 0; t < tt; ++t)
-			objExp += pi[k] * pensla * deltaminusSLA[t][k];
-
-
-	for (int k = 0; k < kk; ++k)
-		for (int t = 0; t < tt; ++t)
-			objExp += pi[k] * Cadd * gamma[t][k];
-
-
-	//oper cost
-	for (int j = 0; j < n; ++j)
-		for (int k = 0; k < kk; ++k)
-			for (int t = 0; t < tt; ++t)
-				objExp += eta[j][t][k] * pi[k] * opercost;
-
-	IloObjective obj = IloMinimize(env, objExp, "obj");
-	model.add(obj);
-	IloCplex cplex(model);
-	cplex.setParam(IloCplex::TiLim, 60 * 10);
-	IloBool success = cplex.solve();
-
-	double earlcost = 0;
-	double corcost = 0;
-	double curtailcost = 0;
-	double aditcost = 0;
-	double opcost = 0;
-
-	if (success && cplex.isPrimalFeasible())
-	{
-		for (int k = 0; k < kk; ++k)
-			for (int j = 0; j < n; ++j)
-			{
-				for (int t = 0; t < tau[j][k]; ++t)
-					earlcost += Cp * pi[k] * cplex.getValue(Z[j][t]);
-
-				for (int t = tau[j][k]; t < tt; ++t)
-					corcost += Cc * pi[k] * cplex.getValue(Z[j][t]);
-
-				if (tt - 1 >= tau[j][k])
-					corcost += Cc * pi[k] * cplex.getValue(np[j]);
-			}
-
-		for (int k = 0; k < kk; ++k)
-			for (int t = 0; t < tt; ++t)
-				curtailcost += pi[k] * pensla * cplex.getValue(deltaminusSLA[t][k]);
-
-		//getadditcost
-		for (int k = 0; k < kk; ++k)
-		{
-			IloExpr objexp(env);
-			for (int t = 0; t < tt; ++t)
-				aditcost += pi[k] * Cadd * cplex.getValue(gamma[t][k]);
-		}
-
-		//getopercost
-		//oper cost
-		for (int j = 0; j < n; ++j)
-			for (int k = 0; k < kk; ++k)
-				for (int t = 0; t < tt; ++t)
-				{
-					double coef = pi[k] * opercost;
-					opcost += cplex.getValue(eta[j][t][k]) * coef;
-				}
-	}
-
-
-
-	double totalcost = earlcost + corcost + curtailcost + aditcost + opcost;
-	traincost[senaryo] = totalcost;
-
-	//first stage decisions
-	for (int j = 0; j < n; ++j)
-		for (int t = 0; t < tt; ++t)
-			z1[j][t] = cplex.getValue(Z[j][t]);
-
-	cplex.end();
-	model.end();
-	env.end();
-}
-
-
-
-
-void GenerateJobs(vector<Job>& Jobs, mt19937& rngmt, int agetype)
+void GenerateJobs(vector<Job>& Jobs, int n, mt19937& rngmt, int agetype)
 {
 	int Ymax = 0;
 	int Ymin = 0;
@@ -818,21 +599,26 @@ void GenerateJobs(vector<Job>& Jobs, mt19937& rngmt, int agetype)
 		int age = 0;
 		if (agetype == 0)
 		{
-			uniform_int_distribution<int> ageunif(10, 20); //genc
+			//uniform_int_distribution<int> ageunif(10, 20); //genc
+			uniform_int_distribution<int> ageunif(30, 40); //genc
 			age = ageunif(rngmt);
 		}
 
 		else if (agetype == 1)
 		{
-			uniform_int_distribution<int> ageunif(50, 60); //ya�l�
+			//uniform_int_distribution<int> ageunif(50, 60); //ya�l�
+			uniform_int_distribution<int> ageunif(70, 80); //ya�l�
 			age = ageunif(rngmt);
 		}
 
 		else
 		{
-			uniform_int_distribution<int> ageunif(10, 60); // kar���k
+			//uniform_int_distribution<int> ageunif(10, 60); // kar���k
+			uniform_int_distribution<int> ageunif(30, 80); // kar���k
 			age = ageunif(rngmt);
 		}
+
+
 
 
 		//Jobs.emplace_back(j, age);
@@ -840,10 +626,10 @@ void GenerateJobs(vector<Job>& Jobs, mt19937& rngmt, int agetype)
 	}
 }
 
-void GenerateScenarios(int scenK[n][K], int tau[seedsayisi][n][kk], vector<Job>& Jobs, mt19937& rngmt, int type, int trial)
+void GenerateScenarios(vector<std::vector<int>>& scenK, vector<std::vector<std::vector<int>>>& tau, vector<Job>& Jobs, mt19937& rngmt, int type, int trial)
 {
 	double beta = 5; //shape //>1 olsun ki increasing failure rate olsun
-	double alpha = 50; //scale - mtbf
+	double alpha = 70; //scale - mtbf
 
 	int scenario;
 	if (type == 0)
@@ -903,7 +689,6 @@ int main()
 	for (int i = 0; i < kk; ++i)
 		pi[i] = 1.00 / kk;
 
-	int L = 10; // track capacity
 	int Yp = 3; //prev maint duration
 	int Yc = 5; //cor maint duration
 
@@ -913,7 +698,7 @@ int main()
 	//Preventive Job generation 
 	int penymaxplus = opercost * 2;
 
-	int Cc = opercost * 10; //failure penalty
+	int Cc = opercost * 20; //failure penalty //yeni
 	int Cp = Cc / 5;
 	double pensla = 0;      //1.5, 1, 0.5
 
@@ -927,56 +712,69 @@ int main()
 
 	ofstream resultfile;
 
-	for (int age = 0; age < 3; ++age)  //0:stcoh; 1:det
-	{
-		Jobs.clear();
-
-		switch (age)
+	for (int sla = 0; sla < 2; ++sla)
+		for (int age = 0; age < 3; ++age)  //0:stcoh; 1:det
 		{
-		case 0:
-			seed = 0;
-			break;
-		case 1:
-			seed = 1;
-			break;
-		case 2:
-			seed = 2;
-			break;
-		}
+			Jobs.clear();
 
-		mt19937 rngmt;
-		rngmt.seed(seed); // to ensure the same solution when target changes 
-		GenerateJobs(Jobs, rngmt, age);
-		int scenK[n][K];
-		int tau[seedsayisi][n][kk];
-		GenerateScenarios(scenK, tau, Jobs, rngmt, 0, -1);
-
-		for (int typ = 1; typ < 2; ++typ)
-		{
-
-			if (typ == 0)
-				resultfile.open("stochastic_" + to_string(age) + "_expers.txt");
-			else
-				resultfile.open("detexpers" + to_string(age) + "_expers.txt");
-
-
-			if (typ == 0)
-				for (int i = 0; i < seedsayisi; ++i)
-					GenerateScenarios(scenK, tau, Jobs, rngmt, 1, i); //train tau by i seed
-
-			for (int cas = 0; cas < 3; ++cas)
+			switch (age)
 			{
-				if (cas == 0)
-					pensla = Cc * 1.5;
-				else if (cas == 1)
-					pensla = Cc;
-				else
-					pensla = Cc*2/3;
+				case 0:
+					seed = 0;
+					break;
+				case 1:
+					seed = 1;
+					break;
+				case 2:
+					seed = 2;
+					break;
+			}
 
-				for (int met = 0; met < 2; met++)
-					for (int sla = 0; sla < 2; ++sla)
+			int n = 57; // total number of jobs    //real
+			if (sla == 1)
+				n = 74;
+			int L = ceil(n * 0.20); // track capacity //9.6.25
+
+			mt19937 rngmt;
+			rngmt.seed(seed); // to ensure the same solution when target changes 
+			GenerateJobs(Jobs, n, rngmt, age);
+
+			/*int scenK[n][K];
+			int tau[seedsayisi][n][kk];*/
+
+			std::vector<std::vector<int>> scenK(n, std::vector<int>(K, 0));
+
+			// 3D vector for tau[seedsayisi][n][kk]
+			std::vector<std::vector<std::vector<int>>> tau(
+				seedsayisi, std::vector<std::vector<int>>(n, std::vector<int>(kk, 0)));
+
+			GenerateScenarios(scenK, tau, Jobs, rngmt, 0, -1);
+
+			for (int typ = 0; typ < 2; ++typ)
+			{
+
+				if (typ == 0)
+					resultfile.open("stochastic_" + to_string(sla) + "_" + to_string(age) + "_expers.txt");
+				else
+					resultfile.open("detexpers" + to_string(sla) + "_" + to_string(age) + "_expers.txt");
+
+
+				if (typ == 0)
+					for (int i = 0; i < seedsayisi; ++i)
+						GenerateScenarios(scenK, tau, Jobs, rngmt, 1, i); //train tau by i seed
+
+				for (int cas = 0; cas < 3; ++cas)
+				{
+					if (cas == 0)
+						pensla = Cc * 1.5;
+					else if (cas == 1)
+						pensla = Cc;
+					else
+						pensla = Cc * 2 / 3;
+
+					for (int met = 0; met < 2; met++)
 					{
-						if(typ==0 && met == 1)
+						if (typ == 0 && met == 1)
 							continue;
 
 						double testdata[K][perfkriteri];
@@ -988,7 +786,7 @@ int main()
 
 						if (typ == 1)
 						{
-							GenerateJobInterval(Jobs, met); //modify det job interval
+							GenerateJobInterval(Jobs, met, n); //modify det job interval
 							if (met == 0)
 								method = "Strict";
 							else
@@ -1030,16 +828,16 @@ int main()
 						//sla settings
 						if (sla == 0) //m1
 						{
-							SLAdaily = new int[4] {0, 79, 88, 86};
-							SLAsat = new int[4] {22, 72, 90, 83 };
-							SLAsun = new int[4] {22, 71, 76, 72};
+							SLAdaily = new int[4] {0, 45, 50, 49};
+							SLAsat = new int[4] {12, 41, 51, 47 };
+							SLAsun = new int[4] {12, 40, 43, 41};
 						}
 
 						else //m4
 						{
-							SLAdaily = new int[4] {0, 92, 90, 80 };
-							SLAsat = new int[4] {15, 75, 90, 76 };
-							SLAsun = new int[4] {15, 65, 90, 73 };
+							SLAdaily = new int[4] {0, 68, 66, 59 };
+							SLAsat = new int[4] {11, 55, 66, 56 };
+							SLAsun = new int[4] {11, 48, 66, 54 };
 						}
 
 
@@ -1066,24 +864,38 @@ int main()
 							}
 						}
 
+
 						//first stage decisions
 						double totcost2 = 0;
-						double z1_all[seedsayisi][n][tt];
+
+						/*double z1_all[seedsayisi][n][tt];
 						double z1best[n][tt];
-						double z2[n][tt];
+						double z2[n][tt];*/
+
+						std::vector<std::vector<std::vector<double>>> z1_all(
+							seedsayisi, std::vector<std::vector<double>>(n, std::vector<double>(tt, 0.0))
+						);
+
+						std::vector<std::vector<double>> z1best(
+							n, std::vector<double>(tt, 0.0)
+						);
+
+						std::vector<std::vector<double>> z2(
+							n, std::vector<double>(tt, 0.0)
+						);
+
+
 						auto start = chrono::steady_clock::now();
 
 						if (typ == 1)
-							model2cost = SetupModel2(z2, pi, opercost, Cadd, pensla, Cc, Cp, penymaxplus, Yp, Yc, L, SLA, Jobs);
+							model2cost = SetupModel2(z2, n, pi, opercost, Cadd, pensla, Cc, Cp, penymaxplus, Yp, Yc, L, SLA, Jobs);
 						else
 							for (int i = 0; i < seedsayisi; ++i) //MODEL1 TRAIN 5 TIMES
 							{
-								double z1[n][tt];
+								//double z1[n][tt];
+								std::vector<std::vector<double>> z1(n, std::vector<double>(tt, 0.0));
 
-								if (met == 0)
-									SetupModel1(i, z1, traincost, pi, tau[i], opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA);
-								else
-									SetupModel1withChance(i, z1, traincost, pi, tau[i], opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA, rho, epsilon);
+								SetupModel1(i, n, z1, traincost, pi, tau[i], opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA);
 
 								for (int job = 0; job < n; ++job)
 									for (int t = 0; t < tt; ++t)
@@ -1146,9 +958,9 @@ int main()
 								double objresult;
 
 								if (typ == 0)
-									objresult = SetupModelTest(z1best, testscenarios, gamma, sla_v, costestcor, costestprev, opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA);
+									objresult = SetupModelTest(z1best, n, testscenarios, gamma, sla_v, costestcor, costestprev, opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA);
 								else
-									objresult = SetupModelTest(z2, testscenarios, gamma, sla_v, costestcor, costestprev, opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA);
+									objresult = SetupModelTest(z2, n, testscenarios, gamma, sla_v, costestcor, costestprev, opercost, Cadd, pensla, Cc, Cp, Yp, Yc, L, SLA);
 
 								int slav = 0;
 								int gammasum = 0;
@@ -1162,8 +974,8 @@ int main()
 
 								testdata[k][0] = costestprev / Cp;
 								testdata[k][1] = costestcor / Cc;
-								testdata[k][2] = slav/tt;
-								testdata[k][3] = gammasum/tt;
+								testdata[k][2] = slav / tt;
+								testdata[k][3] = gammasum / tt;
 								testdata[k][4] = objresult;
 
 								delete[] testscenarios;
@@ -1238,10 +1050,12 @@ int main()
 						delete[] CI_test;
 						//delete[] totraincost;
 					}
+				}
+
+				resultfile.close();
 			}
+
 		}
-		resultfile.close();
-	}
 
 
 }
