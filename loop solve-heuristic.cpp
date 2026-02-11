@@ -450,11 +450,10 @@ double DispatchJobs(int* SLA, int capacity, vector<Job>& Jobs, int T, int Yp, ve
 		/*-----------------------------------
 		  Assign jobs from Jcons
 		-----------------------------------*/
-		while (Hangar.size() < capacity && !Jcons.empty())
+		//while (Hangar.size() < capacity && !Jcons.empty() && availablejobs >= SLA[t]) //makalede raporlanan
+		// while (!Jcons.empty() && availablejobs > SLA[t]) //berbat! en kötü!
+		 while (Hangar.size() < capacity && !Jcons.empty() && availablejobs > SLA[t]) //makaledeki pseudo - daha iyi çıktı!
 		{
-			if (availablejobs < SLA[t])
-				break;
-
 			int jidx = Jcons.front();   // earliest feasible job
 			Job& job = Jobs[jidx];
 
